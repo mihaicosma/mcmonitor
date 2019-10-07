@@ -16,6 +16,7 @@ recipient=""
 
 SCRIPT_LOG="/tmp/mcmonitor_script.log"
 STATUS_FILE="/tmp/mcmonitor_status.txt"
+JSON_FILE="/tmp/mcmonitor_json.json"
 MIN_SEVERITY_TO_DISPLAY=0
 MIN_SEVERITY_TO_MAIL=1
 
@@ -38,8 +39,6 @@ else
    nslookup_command="/usr/sbin/nslookup"
    tail_command="tail -"
 fi
-
-
 
 ##############################################################################
 #
@@ -77,13 +76,48 @@ function debug {
       fi
 }
 
+
+function json_add {
+      
+      id=`echo $* | cut -d\" -f4`
+      if [ ! ${#id} -ge 1 ]; then     
+         debug "Adding to json failed for some reason"
+      else 
+         debug "Adding info about $id to json."
+         cat $JSON_FILE | grep -v "\"$id\"" | head -n -2 > $JSON_FILE.tmp
+         echo $*, >> $JSON_FILE.tmp
+         tail -2 $JSON_FILE >> $JSON_FILE.tmp
+         mv -f $JSON_FILE.tmp $JSON_FILE
+      fi
+      if [[ $DEBUG = "TRUE" ]]; then
+        log $*
+      fi
+}
+
+function json_add_loopback {
+
+      id=`echo $* | cut -d\" -f4`
+      if [ ! ${#id} -ge 1 ]; then
+         debug "Adding to json failed for some reason"
+      else
+         debug "Adding info about $id to json."
+         cat $JSON_FILE | grep -v "\"$id\"" | head -n -2 > $JSON_FILE.tmp
+         echo $* >> $JSON_FILE.tmp
+         tail -1 $JSON_FILE >> $JSON_FILE.tmp
+         mv -f $JSON_FILE.tmp $JSON_FILE
+      fi
+      if [[ $DEBUG = "TRUE" ]]; then
+        log $*
+      fi
+}
+
+
+
 function jsonval {
     temp=`echo $json | sed 's/\\\\\//\//g' | sed 's/[{}]//g' | awk -v k="text" '{n=split($0,a,","); for (i=1; i<=n; i++) print a[i]}' | sed 's/\"\:\"/\|/g' | sed 's/[\,]/ /g' | sed 's/\"//g' | grep -w $prop`
     echo ${temp##*|}
 }
-#json=`curl -s -X GET http://twitter.com/users/show/$1.json`
-#prop='profile_image_url'
-#picurl=`jsonval`
+
 
 function usage {
  
@@ -200,8 +234,8 @@ function check_schedule() {
 		 start_mm=`echo $todays_schedule | cut -d- -f1 | awk '{print ($1)}' | cut -d: -f2`
 		 end_hh=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f1`
 		 end_mm=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f2`
-		 current_hh=`date +%H | bc`
-		 current_mm=`date +%M | bc`		 
+		 current_hh=$( expr `date +%H` + 0 )
+		 current_mm=$( expr `date +%M` + 0 )		 
 		 (( start_stamp = start_hh * 100 + start_mm ))
 		 (( end_stamp = end_hh * 100 + end_mm ))
 		 (( current_stamp = current_hh * 100 + current_mm ))
@@ -376,6 +410,17 @@ ngrokurl=`jsonval`
 debug "parse url: $ngrokurl"
 iplist=`ifconfig -a | grep 'inet ' | grep -v '127' | grep -v 'inet6' | cut -d: -f2 | cut -d' ' -f1`
 
+##############################################################################
+#
+#  JSON Status Init
+#
+
+
+if [ ! -f $JSON_FILE ]; then
+  echo "[" >> $JSON_FILE
+  echo "{ \"id\":\"loopback\", \"errorlevel\":1, \"details\":\"Just started.\", \"timestamp\":`date +%s` }" >> $JSON_FILE 
+  echo "]" >> $JSON_FILE
+fi
 
 
 ##############################################################################
@@ -405,12 +450,14 @@ while [[ ${command[$COUNTER]} != "" ]]; do
         # Este ok 
 		
         display_and_mail ${message_YES[COUNTER]}
+        json_add "{ \"id\":\"command $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
        else
 	    check_subject
 	    check_severity ${severity[$COUNTER]}
-        display_and_mail ${message_NOT[$COUNTER]}
-        add_to_recipients ${add_recipient[$COUNTER]} 
-		clear_severity
+            display_and_mail ${message_NOT[$COUNTER]}
+            add_to_recipients ${add_recipient[$COUNTER]} 
+	    clear_severity
+            json_add "{ \"id\":\"command $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
       fi   
    fi   
    ((COUNTER=COUNTER+1))
@@ -437,11 +484,14 @@ while [[ ${remote_IP[$COUNTER]} != "" ]]; do
           # NU este OK
 		  check_subject
 		  check_severity ${severity[$COUNTER]}
-          display_and_mail ${message_NOT[$COUNTER]}
-         add_to_recipients ${add_recipient[$COUNTER]} 		  
+                  display_and_mail ${message_NOT[$COUNTER]}
+                  add_to_recipients ${add_recipient[$COUNTER]} 		  
 		  clear_severity
+                  json_add "{ \"id\":\"remote $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
          else
           display_and_mail ${message_YES[COUNTER]}
+          json_add "{ \"id\":\"remote $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
+
       fi
    fi    
    ((COUNTER=COUNTER+1))
@@ -459,38 +509,42 @@ COUNTER=1
 while [[ ${test_ip[$COUNTER]} != "" ]]; do
   SEVERITY=0
   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
-   if [[ $IN_SCHEDULE != "FALSE" ]]; then   
+   if [[ $IN_SCHEDULE != "FALSE" ]]; then
    TMP_VAR_reverse=$($nslookup_command ${test_ip[$COUNTER]} 2>&1 | grep "can't find" | wc -l)
-   TMP_VAR_direct=$($nslookup_command ${test_host[$COUNTER]} 2>&1 | grep "can't find" | wc -l) 
+   TMP_VAR_direct=$($nslookup_command ${test_host[$COUNTER]} 2>&1 | grep "can't find" | wc -l)
 
    failure_detected="false"
    if (( $TMP_VAR_direct > 0 ))
       then
-	   check_subject
-	   check_severity ${severity[$COUNTER]}
-       display_and_mail "[NOT OK] The DNS is not working properly. Direct lookup failed."
-       failure_detected="true"
-       add_to_recipients ${add_recipient[$COUNTER]} 
-	   clear_severity
+           check_subject
+           check_severity ${severity[$COUNTER]}
+           display_and_mail "[NOT OK] The DNS is not working properly. Direct lookup failed."
+           failure_detected="true"
+           add_to_recipients ${add_recipient[$COUNTER]}
+           clear_severity
+           json_add "{ \"id\":\"dns $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"[NOT OK] The DNS is not working properly. Direct lookup failed.\", \"timestamp\":`date +%s` }"
    fi
    if (( $TMP_VAR_reverse > 0 ))
-     then 
-	  check_subject
-	  check_severity ${severity[$COUNTER]}
-      display_and_mail "[NOT OK] The DNS is not working properly. Reverse lookup failed."
-      failure_detected="true"
-      add_to_recipients ${add_recipient[$COUNTER]} 	  
-	  clear_severity
+     then
+          check_subject
+          check_severity ${severity[$COUNTER]}
+          display_and_mail "[NOT OK] The DNS is not working properly. Reverse lookup failed."
+          failure_detected="true"
+          add_to_recipients ${add_recipient[$COUNTER]}
+          clear_severity
+          json_add "{ \"id\":\"dns $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"[NOT OK] The DNS is not working properly. Reverse lookup failed.\", \"timestamp\":`date +%s` }"
    fi
 
-   if [[ $failure_detected = "false" ]] 
+   if [[ $failure_detected = "false" ]]
       then
       display_and_mail "[OK] DNS seems to be working OK"
-   fi 
+      json_add "{ \"id\":\"dns $COUNTER\", \"errorlevel\":0, \"details\":\"[OK] DNS seems to be working OK.\", \"timestamp\":`date +%s` }"
+
+   fi
 
   fi
   ((COUNTER=COUNTER+1))
-done  
+done
   
 ##############################################################################
 #
@@ -507,35 +561,41 @@ COUNTER=1
 while [[ ${mountpoint[$COUNTER]} != "" ]]; do
   SEVERITY=0
   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
-  if [[ $IN_SCHEDULE != "FALSE" ]]; then   
+  if [[ $IN_SCHEDULE != "FALSE" ]]; then
 
   TMP_VAR=$($df_command | grep ${mountpoint[$COUNTER]} | grep -v ${mountpoint[$COUNTER]}/ | awk -F" " '{print $5}' | tr -d "%")
   debug "first attempt for ${mountpoint[$COUNTER]} is: $TMP_VAR"
   if [[ $TMP_VAR == "" ]]; then
-     TMP_VAR=$($df_command | grep ${mountpoint[$COUNTER]} | grep -v ${mountpoint[$COUNTER]}/ | awk -F" " '{print $4}' | tr -d "%")  
-	 debug "second attempt for ${mountpoint[$COUNTER]} is: $TMP_VAR"
-  fi 
+     TMP_VAR=$($df_command | grep ${mountpoint[$COUNTER]} | grep -v ${mountpoint[$COUNTER]}/ | awk -F" " '{print $4}' | tr -d "%")
+         debug "second attempt for ${mountpoint[$COUNTER]} is: $TMP_VAR"
+  fi
   if [[ $TMP_VAR == "" ]]; then
-	 display_and_mail "[NOT OK] ${mountpoint[$COUNTER]} does not seem to be mounted."
-	 disk_space="NOT OK"
+         display_and_mail "[NOT OK] ${mountpoint[$COUNTER]} does not seem to be mounted."
+         disk_space="NOT OK"
+         json_add "{ \"id\":\"disk $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"[NOT OK] ${mountpoint[$COUNTER]} does not seem to be mounted.\", \"timestamp\":`date +%s` }"
+
      else
      if (( $TMP_VAR < ${threshold[$COUNTER]} ))
        then
         echo "< ${threshold[$COUNTER]} is OK" > /dev/null
-       else 
-	    check_subject
-	    check_severity ${severity[$COUNTER]}
-        display_and_mail "[NOT OK] ${mountpoint[$COUNTER]} usage is $TMP_VAR %." 
-        disk_space="NOT OK"
-        add_to_recipients ${add_recipient[$COUNTER]} 
-		clear_severity
-     fi  
-  fi 
+        json_add "{ \"id\":\"disk $COUNTER\", \"errorlevel\":0, \"details\":\"[OK] Disk space on ${mountpoint[$COUNTER]} is OK - $TMP_VAR < ${threshold[$COUNTER]}\", \"timestamp\":`date +%s` }"
+
+       else
+            check_subject
+            check_severity ${severity[$COUNTER]}
+            display_and_mail "[NOT OK] ${mountpoint[$COUNTER]} usage is $TMP_VAR %."
+            disk_space="NOT OK"
+            add_to_recipients ${add_recipient[$COUNTER]}
+            clear_severity
+            json_add "{ \"id\":\"disk $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"[NOT OK] ${mountpoint[$COUNTER]} usage is $TMP_VAR %.\", \"timestamp\":`date +%s` }"
+     fi
+  fi
 
   fi
   ((COUNTER=COUNTER+1))
-done     
- 
+done
+
+
 #Disk space overall ===========================================================
   if [[ $disk_space = "OK" ]]
     then 
@@ -574,12 +634,15 @@ EOF`
   if [[ $answer = ${expected_result[$COUNTER]} ]]
     then
      display_and_mail ${message_YES[$COUNTER]} 
+     json_add "{ \"id\":\"oracle $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
     else
 	 check_subject
 	 check_severity ${severity[$COUNTER]}
-     display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
-     add_to_recipients ${add_recipient[$COUNTER]} 
-	 clear_severity
+         display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
+         add_to_recipients ${add_recipient[$COUNTER]} 
+         clear_severity
+         json_add "{ \"id\":\"oracle $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
+
   fi
   
   fi
@@ -605,16 +668,18 @@ while [[ ${script[$COUNTER]} != "" ]]; do
   debug "Se executa: . ${script[$COUNTER]}"
   TMP_VAR=`. ${script[$COUNTER]}`
   answer=`echo $TMP_VAR`
-  debug "Raspunsul este $answer"
+  debug "Answer is $answer"
   if [[ $answer = ${normaloutput[$COUNTER]} ]]
     then
      display_and_mail ${message_YES[$COUNTER]} 
+     json_add "{ \"id\":\"external $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
     else
 	 check_subject
 	 check_severity ${severity[$COUNTER]}
-     display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
-     add_to_recipients ${add_recipient[$COUNTER]} 
-	 clear_severity
+         display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
+         add_to_recipients ${add_recipient[$COUNTER]} 
+         clear_severity
+         json_add "{ \"id\":\"external $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
   fi
   
   fi
@@ -660,6 +725,8 @@ while [[ ${log_file[$COUNTER]} != "" ]]; do
 	check_subject
 	check_severity ${severity[$COUNTER]}
     display_and_mail ${message_NOT[$COUNTER]}
+    json_add "{ \"id\":\"log $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
+
     display_and_mail "$lines lines found matching error messages:"
     if ((lines > 40 ))
 		then
@@ -672,6 +739,7 @@ while [[ ${log_file[$COUNTER]} != "" ]]; do
 	clear_severity
    else
     display_and_mail ${message_YES[$COUNTER]}
+    json_add "{ \"id\":\"log $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
   fi
   
   fi
@@ -766,4 +834,6 @@ if [[ $FORCE_EMAIL = "TRUE" ]]
 fi
 
 log "Script $SCRIPT_VERSION (pid $CURRENT_PID) ended normally. Severity was found to be $MAX_SEVERITY."
+json_add_loopback "{ \"id\":\"loopback\", \"errorlevel\":0, \"details\":\"Ran OK. severity is ${MAX_SEVERITY}.\", \"timestamp\":`date +%s` }"
+
 #End ==========================================================================
