@@ -7,6 +7,7 @@ SCRIPT_VERSION="mcmonitor 0.99 RC"
 ECHO_DISPLAY="OFF"
 FORCE_EMAIL="FALSE"
 NO_EMAIL="FALSE"
+CHANGE_ONLY="FALSE"
 UPDATE_ROWNUM="TRUE"
 DEBUG="FALSE"
 
@@ -15,13 +16,16 @@ subject="McMonitor status mail"
 recipient=""
 
 SCRIPT_LOG="/tmp/mcmonitor_script.log"
-STATUS_FILE="/tmp/mcmonitor_status.txt"
+LINE_FILE="/tmp/mcmonitor_linecount.txt"
+STAT_FILE="/tmp/mcmonitor_status.txt"
 JSON_FILE="/tmp/mcmonitor_json.json"
 MIN_SEVERITY_TO_DISPLAY=0
 MIN_SEVERITY_TO_MAIL=1
 
 SCRIPT_LOCATION=`dirname $0`
+PWD_LOCATION=`pwd`
 CONFIG="$SCRIPT_LOCATION/mcmonitor.ini"
+cd $SCRIPT_LOCATION
 
 #This values are the worst case defaults
 #The mcmonitor.ini values take precedence over these values
@@ -30,14 +34,35 @@ CONFIG="$SCRIPT_LOCATION/mcmonitor.ini"
 # Determine OS
 OS=`uname`
 
+## defaults
+   df_command="df -h"
+   nslookup_command="/usr/sbin/nslookup"
+   ifconfig_command="/sbin/ifconfig"
+   tail_command="tail -"
+   head_command="head -n "
+   mail_command="/bin/mailx"
+   node_command="/usr/local/bin/node"
+
+## custom
 if [[ $OS == "HP-UX" ]]; then
    df_command="bdf"
    nslookup_command="/usr/bin/nslookup"
    tail_command="tail -n "
-else
-   df_command="df -h"
-   nslookup_command="/usr/sbin/nslookup"
-   tail_command="tail -"
+   head_command="head -n "
+   mail_command="mailx"
+fi
+if [[ $OS == "Linux" ]]; then
+   mail_command="/usr/bin/mailx"
+fi
+
+## check nodemailx addon
+if [[ -f $SCRIPT_LOCATION/nodemailx ]]; then
+   chmod +x $SCRIPT_LOCATION/nodemailx
+   mail_command="$SCRIPT_LOCATION/nodemailx"
+fi
+if [[ -d $SCRIPT_LOCATION/nodemailx ]]; then
+   export NODE_PATH=$SCRIPT_LOCATION/nodemailx
+   mail_command="/usr/local/bin/node $SCRIPT_LOCATION/nodemailx/app.js "
 fi
 
 ##############################################################################
@@ -83,11 +108,14 @@ function json_add {
       if [ ! ${#id} -ge 1 ]; then     
          debug "Adding to json failed for some reason"
       else 
+         errorlevel=`echo $* | cut -d\" -f7 | cut -d: -f2 | cut -d, -f1`
+         details=`echo $* | cut -d\" -f10`
          debug "Adding info about $id to json."
-         cat $JSON_FILE | grep -v "\"$id\"" | head -n -2 > $JSON_FILE.tmp
-         echo $*, >> $JSON_FILE.tmp
-         tail -2 $JSON_FILE >> $JSON_FILE.tmp
-         mv -f $JSON_FILE.tmp $JSON_FILE
+         cat $JSON_FILE | grep -v "\"$id\"" | ${head_command} -2 > $JSON_FILE.$CURRENT_PID.tmp
+         echo $*, >> $JSON_FILE.$CURRENT_PID.tmp
+         ${tail_command}2 $JSON_FILE >> $JSON_FILE.$CURRENT_PID.tmp
+         mv -f $JSON_FILE.$CURRENT_PID.tmp $JSON_FILE
+         echo ${id},${errorlevel} >> $STAT_FILE.$CURRENT_PID.tmp
       fi
       if [[ $DEBUG = "TRUE" ]]; then
         log $*
@@ -101,10 +129,10 @@ function json_add_loopback {
          debug "Adding to json failed for some reason"
       else
          debug "Adding info about $id to json."
-         cat $JSON_FILE | grep -v "\"$id\"" | head -n -2 > $JSON_FILE.tmp
-         echo $* >> $JSON_FILE.tmp
-         tail -1 $JSON_FILE >> $JSON_FILE.tmp
-         mv -f $JSON_FILE.tmp $JSON_FILE
+         cat $JSON_FILE | grep -v "\"$id\"" | ${head_command} -2 > $JSON_FILE.$CURRENT_PID.tmp
+         echo $* >> $JSON_FILE.$CURRENT_PID.tmp
+         ${tail_command}1 $JSON_FILE >> $JSON_FILE.$CURRENT_PID.tmp
+         mv -f $JSON_FILE.$CURRENT_PID.tmp $JSON_FILE
       fi
       if [[ $DEBUG = "TRUE" ]]; then
         log $*
@@ -121,12 +149,13 @@ function jsonval {
 
 function usage {
  
-	  echo "Usage: mcmonitor [--option] [--option] [...]"
+      echo "Usage: mcmonitor [--option] [--option] [...]"
       echo "  -e | --echo            Echos messages to display"
-	  echo "  -d | --debug           Debug mode"
+      echo "  -d | --debug           Debug mode"
       echo "  -f | --force_email     Forces sending of email even if everything is OK"
       echo "  -n | --no_email        Disables sending of email"
       echo "  -r | --no_row_update   Disables the updating of the log rows cursor"
+      echo "  -c | --change_only     Send email only on status change"
       echo "  -h | --help            Prints this message"
 
 }
@@ -264,10 +293,10 @@ function last_lines() {
 
   current_log_file=`echo $*`
   
-  if [ -f $STATUS_FILE ]
+  if [ -f $LINE_FILE ]
    then
      # citeste cate sunt si cate au fost	 	 
-	 lines_files_line=`cat $STATUS_FILE | grep "$current_log_file"`	     
+	 lines_files_line=`cat $LINE_FILE | grep "$current_log_file"`	     
 	 old_lines=`echo $lines_files_line | cut -d: -f2`
 	 prev_lines=`echo $lines_files_line | cut -d: -f3`
 	 prev_pid=`echo $lines_files_line | cut -d: -f4`
@@ -281,7 +310,7 @@ function last_lines() {
 	    #debug "The STATUS file does not have any information regarding $current_log_file."
 	    (( diference = total_lines ))
 		if [[ $UPDATE_ROWNUM=="TRUE" ]]; then		
-		   echo "${current_log_file}:0:${total_lines}:$CURRENT_PID" >> $STATUS_FILE
+		   echo "${current_log_file}:0:${total_lines}:$CURRENT_PID" >> $LINE_FILE
 		fi
   else	 
 	    if [[ $prev_pid == $CURRENT_PID ]]; then
@@ -291,9 +320,9 @@ function last_lines() {
 		   (( diference = total_lines - prev_lines ))
 		   if [[ $UPDATE_ROWNUM == "TRUE" ]]; then
 		     #debug "Updating the STATUS file with new lines $total_lines."
-		     `cat $STATUS_FILE | grep -v $current_log_file > $STATUS_FILE.tmp`
-		     `mv $STATUS_FILE.tmp $STATUS_FILE`
-		     echo "${current_log_file}:${prev_lines}:${total_lines}:$CURRENT_PID" >> $STATUS_FILE
+		     `cat $LINE_FILE | grep -v $current_log_file > $LINE_FILE.tmp`
+		     `mv $LINE_FILE.tmp $LINE_FILE`
+		     echo "${current_log_file}:${prev_lines}:${total_lines}:$CURRENT_PID" >> $LINE_FILE
 		   fi
 		 fi
   fi	
@@ -350,12 +379,16 @@ for arg; do
 	   ;;
         -e | --echo )
 	   ECHO_DISPLAY="ON"
-	   echo 'Display=ON'
+	   echo 'ECHO_Display=ON'
 	   ;;
         -d | --debug )
 	   DEBUG="TRUE"
 	   echo '-- Debug mode ON'
 	   ;;	   	   
+        -c | --change_only )
+           CHANGE_ONLY="TRUE"
+           debug '-- Change only mode ON'
+           ;;
         -h | --help )
 	   usage
 	   exit
@@ -399,21 +432,49 @@ if [ -f $SOURCE_ENVIRONMENT ]; then
 
 add_to_recipients "default_group"
 
+## check nodemailx addon
+if [[ -f $SCRIPT_LOCATION/nodemailx ]]; then
+   chmod +x $SCRIPT_LOCATION/nodemailx
+   mail_command="$SCRIPT_LOCATION/nodemailx"
+fi
+if [[ -d $SCRIPT_LOCATION/nodemailx ]]; then
+   export NODE_PATH=$SCRIPT_LOCATION/nodemailx
+   mail_command="$node_command $SCRIPT_LOCATION/nodemailx/app.js "
+fi
+
 ##############################################################################
 #
 #  Additional localhost details
 #
-json=`curl -s -X GET http://localhost:4040/api/tunnels`
-debug "Raspuns ngrok API: $json"
+ngrok_json=`curl -s --connect-timeout 1 --max-time 2 -X GET http://localhost:4040/api/tunnels`
+debug "Raspuns ngrok API: $ngrok_json"
 prop='public_url'
 ngrokurl=`jsonval`
 debug "parse url: $ngrokurl"
-iplist=`ifconfig -a | grep 'inet ' | grep -v '127' | grep -v 'inet6' | cut -d: -f2 | cut -d' ' -f1`
+iplist=`$ifconfig_command -a | grep 'inet ' | grep -v '127' | grep -v 'inet6' | cut -d: -f2 | cut -d' ' -f1`
 
 ##############################################################################
 #
 #  JSON Status Init
 #
+
+# Check if json starts and ends as expected. If not, delete the existing json
+if [  -f $JSON_FILE ]; then
+
+  check_json_start=`${head_command}1 $JSON_FILE `
+  check_json_end=`${tail_command}1 $JSON_FILE `
+
+  if [ "x$check_json_start" != "x[" ]; then
+     debug "JSON first line NOT OK. Resetting JSON file."
+     rm -f $JSON_FILE 
+  fi
+  if [ "x$check_json_end" != "x\]" ]; then
+     debug "JSON last line NOT OK. Resetting JSON file."
+     rm -f $JSON_FILE
+  fi
+
+fi
+
 
 
 if [ ! -f $JSON_FILE ]; then
@@ -769,6 +830,13 @@ if [[ `echo -e "$message" | grep "NOT OK"` = "" ]]
      display_and_mail "Everything seems ok!"
 fi
 
+CHANGE_DETECTED="TRUE"
+if [ -f $STAT_FILE ]; then
+  difference=`diff $STAT_FILE $STAT_FILE.$CURRENT_PID.tmp | wc -l`
+  if [[ $difference == "0" ]]; then CHANGE_DETECTED="FALSE"; fi
+  mv -f $STAT_FILE.$CURRENT_PID.tmp $STAT_FILE
+fi
+
 SEVERITY_TEXT="Normal"
 if [[ $MAX_SEVERITY == "1" ]]; then SEVERITY_TEXT="Indeterminate"; fi
 if [[ $MAX_SEVERITY == "2" ]]; then SEVERITY_TEXT="Warning"; fi
@@ -779,23 +847,8 @@ if [[ $MAX_SEVERITY == "5" ]]; then SEVERITY_TEXT="Critical"; fi
 if [[ $FORCE_EMAIL = "TRUE" ]] 
   then
     debug "Mailed sent with forced -f option!"
-		 debug "Sending mail!"
-		 OSfound="FALSE"
-		 if [[ $OS == "HP-UX" ]]; then
-			echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-			OSfound="TRUE"
-		 fi
-		 if [[ $OS == "SunOS" ]]; then
-			echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-			OSfound="TRUE"
-		 fi
-                 if [[ $OS == "Linux" ]]; then
-                        echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-                        OSfound="TRUE"
-                 fi
-		 if [[ $OSfound == "FALSE" ]]; then
-			echo -e "$message" | /bin/mailx -s "[$SEVERITY_TEXT] $subject" $recipient -- -r $sender
-		 fi		
+      debug "Sending mail!"
+      echo -e "$message" | $mail_command -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
   else
   if [[ `echo -e "$message" | grep "NOT OK"` = "" ]]
    then
@@ -808,24 +861,13 @@ if [[ $FORCE_EMAIL = "TRUE" ]]
 	     then
 	     display_and_mail "Message will not be sent because of --no_email option"
          else	
-	     # REALLY! SEND THE EMAIL!
-		 debug "Sending mail!"
-		 OSfound="FALSE"
-		 if [[ $OS == "HP-UX" ]]; then
-			echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-			OSfound="TRUE"
-		 fi
-		 if [[ $OS == "SunOS" ]]; then
-			echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-			OSfound="TRUE"
-		 fi
-                 if [[ $OS == "Linux" ]]; then
-                        echo -e "$message" | /usr/bin/mailx -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
-                        OSfound="TRUE"
-                 fi
-		 if [[ $OSfound == "FALSE" ]]; then
-			echo -e "$message" | /bin/mailx -s "[$SEVERITY_TEXT] $subject" $recipient -- -r $sender
-		 fi		 
+             if [[ $CHANGE_ONLY == "TRUE" && $CHANGE_DETECTED == "FALSE" ]]; then
+               debug "Not sending: status has not changed. "
+             else 
+	       # REALLY! SEND THE EMAIL!
+               debug "Sending mail!"
+               echo -e "$message" | $mail_command -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
+             fi
 	  fi
 	else
 	 debug "Not sending: severity is $MAX_SEVERITY, while severity to send mail is $MIN_SEVERITY_TO_MAIL"	 
@@ -836,4 +878,6 @@ fi
 log "Script $SCRIPT_VERSION (pid $CURRENT_PID) ended normally. Severity was found to be $MAX_SEVERITY."
 json_add_loopback "{ \"id\":\"loopback\", \"errorlevel\":0, \"details\":\"Ran OK. severity is ${MAX_SEVERITY}.\", \"timestamp\":`date +%s` }"
 
+# ======= Change working directory back to original location ==================
+cd $PWD_LOCATION
 #End ==========================================================================
