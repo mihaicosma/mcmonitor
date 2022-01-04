@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#default values -- this are the absolute worst case values
+#default values -- these are the absolute worst case values
 #SCRIPT PARAMETERS
 SCRIPT_VERSION="mcmonitor 0.99 RC"
 
@@ -27,7 +27,7 @@ PWD_LOCATION=`pwd`
 CONFIG="$SCRIPT_LOCATION/mcmonitor.ini"
 cd $SCRIPT_LOCATION
 
-#This values are the worst case defaults
+#These values are the worst case defaults
 #The mcmonitor.ini values take precedence over these values
 #The runtime command line arguments take precedence over any other default values
 
@@ -53,6 +53,7 @@ if [[ $OS == "HP-UX" ]]; then
 fi
 if [[ $OS == "Linux" ]]; then
    mail_command="/usr/bin/mailx"
+   nslookup_command="/usr/bin/nslookup"
 fi
 
 ## check nodemailx addon
@@ -74,27 +75,27 @@ function display_and_mail {
 if [[ $SEVERITY == "" ]]; then
    debug "Severity for current test was not set"
    fi
-if [[ $SEVERITY -ge $MIN_SEVERITY_TO_DISPLAY ]]; then 
+if [[ $SEVERITY -ge $MIN_SEVERITY_TO_DISPLAY ]]; then
       echo $* > /dev/null
       if [[ $ECHO_DISPLAY = "ON" ]]; then
-	      echo $*
+              echo $*
       fi
-	  message="$message \n $* \n"
+          message="$message \n $* \n"
 fi
 }
 
 function log {
- 
+
       echo $* > /dev/null
       todays_date=`date`
       if [[ $ECHO_DISPLAY = "ON" ]]; then
         echo $todays_date: $*
-      fi  
-      echo $todays_date $* >> $SCRIPT_LOG 
+      fi
+      echo $todays_date $* >> $SCRIPT_LOG
 }
 
 function debug {
- 
+
       echo $* > /dev/null
       if [[ $DEBUG = "TRUE" ]]; then
         log $*
@@ -103,11 +104,11 @@ function debug {
 
 
 function json_add {
-      
+
       id=`echo $* | cut -d\" -f4`
-      if [ ! ${#id} -ge 1 ]; then     
+      if [ ! ${#id} -ge 1 ]; then
          debug "Adding to json failed for some reason"
-      else 
+      else
          errorlevel=`echo $* | cut -d\" -f7 | cut -d: -f2 | cut -d, -f1`
          details=`echo $* | cut -d\" -f10`
          debug "Adding info about $id to json."
@@ -129,7 +130,7 @@ function json_add_loopback {
          debug "Adding to json failed for some reason"
       else
          debug "Adding info about $id to json."
-         cat $JSON_FILE | grep -v "\"$id\"" | ${head_command} -2 > $JSON_FILE.$CURRENT_PID.tmp
+         cat $JSON_FILE | grep -v "\"$id\"" | ${head_command} -1 > $JSON_FILE.$CURRENT_PID.tmp
          echo $* >> $JSON_FILE.$CURRENT_PID.tmp
          ${tail_command}1 $JSON_FILE >> $JSON_FILE.$CURRENT_PID.tmp
          mv -f $JSON_FILE.$CURRENT_PID.tmp $JSON_FILE
@@ -148,7 +149,7 @@ function jsonval {
 
 
 function usage {
- 
+
       echo "Usage: mcmonitor [--option] [--option] [...]"
       echo "  -e | --echo            Echos messages to display"
       echo "  -d | --debug           Debug mode"
@@ -164,7 +165,7 @@ function check_severity {
    SEVERITY=${severity[$COUNTER]}
    if (( ${severity[$COUNTER]} > $MAX_SEVERITY ))
       then
-	    MAX_SEVERITY=${severity[$COUNTER]}
+            MAX_SEVERITY=${severity[$COUNTER]}
    fi
 }
 
@@ -172,8 +173,8 @@ function check_subject {
    new_subject=${changesubject[$COUNTER]}
    if [[ $new_subject != "" ]]
       then
-	    subject=$new_subject
-		debug "Mail subject changed to: $new_subject"
+            subject=$new_subject
+                debug "Mail subject changed to: $new_subject"
    fi
 }
 
@@ -199,90 +200,90 @@ while [[ ${changesubject[$COUNTER]} != "" ]]; do
    changesubject[$COUNTER]=""
    ((COUNTER=COUNTER+1))
 done
- 
+
     match=0
- 
+
     while read line; do
         # skip comments
         [[ ${line:0:1} == "#" ]] && continue
- 
+
         # skip empty lines
         [[ -z "$line" ]] && continue
- 
+
         # still no match? lets check again
         if [ $match == 0 ]; then
- 
+
             # do we have an opening tag ?
             if [[ ${line:$((${#line}-1))} == "{" ]]; then
- 
+
                 # strip "{"
                 group=${line:0:$((${#line}-1))}
                 # strip whitespace
                 group=${group// /}
- 
+
                 # do we have a match ?
                 if [[ "$group" == "$1" ]]; then
                     match=1
                     continue
                 fi
- 
+
                 continue
             fi
- 
+
         # found closing tag after config was read - exit loop
         elif [[ ${line:0} == "}" && $match == 1 ]]; then
             break
- 
+
         # got a config line eval it
         else
             eval $line
         fi
- 
+
     done < "$CONFIG"
 }
 
 function check_schedule() {
-  IN_SCHEDULE="FALSE"   
+  IN_SCHEDULE="FALSE"
 
-  for arg; do  
-      SCHEDULE_COUNTER=1 
-      while [[ ${schedule_name[$SCHEDULE_COUNTER]} != "" ]]; do    
+  for arg; do
+      SCHEDULE_COUNTER=1
+      while [[ ${schedule_name[$SCHEDULE_COUNTER]} != "" ]]; do
       if [[ $arg == ${schedule_name[$SCHEDULE_COUNTER]} ]]
          then
-		 day_of_week=`date +%u`
-		 case $day_of_week in
-		   1 ) todays_schedule=${schedule_mon[$SCHEDULE_COUNTER]} ;;			
-		   2 ) todays_schedule=${schedule_tue[$SCHEDULE_COUNTER]} ;;
-		   3 ) todays_schedule=${schedule_wed[$SCHEDULE_COUNTER]} ;;
-		   4 ) todays_schedule=${schedule_thu[$SCHEDULE_COUNTER]} ;;
-		   5 ) todays_schedule=${schedule_fri[$SCHEDULE_COUNTER]} ;;
-		   6 ) todays_schedule=${schedule_sat[$SCHEDULE_COUNTER]} ;;
-		   7 ) todays_schedule=${schedule_sun[$SCHEDULE_COUNTER]} ;;
-		 esac		 
-		 start_hh=`echo $todays_schedule | cut -d- -f1 | awk '{print ($1)}' | cut -d: -f1`
-		 start_mm=`echo $todays_schedule | cut -d- -f1 | awk '{print ($1)}' | cut -d: -f2`
-		 end_hh=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f1`
-		 end_mm=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f2`
-		 current_hh=$( expr `date +%H` + 0 )
-		 current_mm=$( expr `date +%M` + 0 )		 
-		 (( start_stamp = start_hh * 100 + start_mm ))
-		 (( end_stamp = end_hh * 100 + end_mm ))
-		 (( current_stamp = current_hh * 100 + current_mm ))
-		 if (( $start_stamp < $current_stamp))
-		    then
-			if (( $current_stamp <= $end_stamp))
-			   then
-			   IN_SCHEDULE="TRUE"
-			   else
-			   echo "NOT_IN_SCHEDULE" > /dev/null
-			fi
-	     fi		 		   
-      fi   
-      (( SCHEDULE_COUNTER = SCHEDULE_COUNTER +1 ))    
+                 day_of_week=`date +%u`
+                 case $day_of_week in
+                   1 ) todays_schedule=${schedule_mon[$SCHEDULE_COUNTER]} ;;
+                   2 ) todays_schedule=${schedule_tue[$SCHEDULE_COUNTER]} ;;
+                   3 ) todays_schedule=${schedule_wed[$SCHEDULE_COUNTER]} ;;
+                   4 ) todays_schedule=${schedule_thu[$SCHEDULE_COUNTER]} ;;
+                   5 ) todays_schedule=${schedule_fri[$SCHEDULE_COUNTER]} ;;
+                   6 ) todays_schedule=${schedule_sat[$SCHEDULE_COUNTER]} ;;
+                   7 ) todays_schedule=${schedule_sun[$SCHEDULE_COUNTER]} ;;
+                 esac
+                 start_hh=`echo $todays_schedule | cut -d- -f1 | awk '{print ($1)}' | cut -d: -f1`
+                 start_mm=`echo $todays_schedule | cut -d- -f1 | awk '{print ($1)}' | cut -d: -f2`
+                 end_hh=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f1`
+                 end_mm=`echo $todays_schedule | cut -d- -f2 | awk '{print ($1)}' | cut -d: -f2`
+                 current_hh=$( expr `date +%H` + 0 )
+                 current_mm=$( expr `date +%M` + 0 )
+                 (( start_stamp = start_hh * 100 + start_mm ))
+                 (( end_stamp = end_hh * 100 + end_mm ))
+                 (( current_stamp = current_hh * 100 + current_mm ))
+                 if (( $start_stamp < $current_stamp))
+                    then
+                        if (( $current_stamp <= $end_stamp))
+                           then
+                           IN_SCHEDULE="TRUE"
+                           else
+                           echo "NOT_IN_SCHEDULE" > /dev/null
+                        fi
+             fi
+      fi
+      (( SCHEDULE_COUNTER = SCHEDULE_COUNTER +1 ))
       done
-  
+
   done
-  
+
   echo $IN_SCHEDULE
 }
 
@@ -292,53 +293,53 @@ function last_lines() {
 #$current_log_file:PREV_LINES:CURRENT_LINES:CURRENT_PID
 
   current_log_file=`echo $*`
-  
+
   if [ -f $LINE_FILE ]
    then
-     # citeste cate sunt si cate au fost	 	 
-	 lines_files_line=`cat $LINE_FILE | grep "$current_log_file"`	     
-	 old_lines=`echo $lines_files_line | cut -d: -f2`
-	 prev_lines=`echo $lines_files_line | cut -d: -f3`
-	 prev_pid=`echo $lines_files_line | cut -d: -f4`
-	 #debug "Old lines $old_lines ; Previous_lines: $prev_lines ; Previous PID $prev_pid ; "
+     # citeste cate sunt si cate au fost
+         lines_files_line=`cat $LINE_FILE | grep "$current_log_file"`
+         old_lines=`echo $lines_files_line | cut -d: -f2`
+         prev_lines=`echo $lines_files_line | cut -d: -f3`
+         prev_pid=`echo $lines_files_line | cut -d: -f4`
+         #debug "Old lines $old_lines ; Previous_lines: $prev_lines ; Previous PID $prev_pid ; "
   fi
 
   total_lines=`cat $current_log_file | wc -l`
-  
- 
-  if [[ $prev_lines == "" ]]; then 
-	    #debug "The STATUS file does not have any information regarding $current_log_file."
-	    (( diference = total_lines ))
-		if [[ $UPDATE_ROWNUM=="TRUE" ]]; then		
-		   echo "${current_log_file}:0:${total_lines}:$CURRENT_PID" >> $LINE_FILE
-		fi
-  else	 
-	    if [[ $prev_pid == $CURRENT_PID ]]; then
-		   #debug "The STATUS file has already been updated for $current_log_file."
-		   (( diference = total_lines - old_lines ))
-		   else		   
-		   (( diference = total_lines - prev_lines ))
-		   if [[ $UPDATE_ROWNUM == "TRUE" ]]; then
-		     #debug "Updating the STATUS file with new lines $total_lines."
-		     `cat $LINE_FILE | grep -v $current_log_file > $LINE_FILE.tmp`
-		     `mv $LINE_FILE.tmp $LINE_FILE`
-		     echo "${current_log_file}:${prev_lines}:${total_lines}:$CURRENT_PID" >> $LINE_FILE
-		   fi
-		 fi
-  fi	
+
+
+  if [[ $prev_lines == "" ]]; then
+            #debug "The STATUS file does not have any information regarding $current_log_file."
+            (( diference = total_lines ))
+                if [[ $UPDATE_ROWNUM=="TRUE" ]]; then
+                   echo "${current_log_file}:0:${total_lines}:$CURRENT_PID" >> $LINE_FILE
+                fi
+  else
+            if [[ $prev_pid == $CURRENT_PID ]]; then
+                   #debug "The STATUS file has already been updated for $current_log_file."
+                   (( diference = total_lines - old_lines ))
+                   else
+                   (( diference = total_lines - prev_lines ))
+                   if [[ $UPDATE_ROWNUM == "TRUE" ]]; then
+                     #debug "Updating the STATUS file with new lines $total_lines."
+                     `cat $LINE_FILE | grep -v $current_log_file > $LINE_FILE.tmp`
+                     `mv $LINE_FILE.tmp $LINE_FILE`
+                     echo "${current_log_file}:${prev_lines}:${total_lines}:$CURRENT_PID" >> $LINE_FILE
+                   fi
+                 fi
+  fi
 
   echo $diference
-  
+
 }
 
 function add_to_recipients {
 
-  for arg; do  
+  for arg; do
       MAILGROUP_COUNTER=1
-      while [[ ${mailgroup_name[$MAILGROUP_COUNTER]} != "" ]]; do    
+      while [[ ${mailgroup_name[$MAILGROUP_COUNTER]} != "" ]]; do
       if [[ $arg == ${mailgroup_name[$MAILGROUP_COUNTER]} ]]
          then
-         new_address=${mailgroup_text[$MAILGROUP_COUNTER]} 
+         new_address=${mailgroup_text[$MAILGROUP_COUNTER]}
 
          response=`expr match "$recipient" ".*$new_address.*"`
 
@@ -346,59 +347,59 @@ function add_to_recipients {
             then
              debug "Recipient $new_address already exists in mail list"
             else
-			 if [[ $recipient != "" ]]; then			 
+                         if [[ $recipient != "" ]]; then
                 recipient="$recipient , $new_address"
-				else
-				recipient="$new_address"
-			 fi
-             debug "New recipient list: $recipient"      
+                                else
+                                recipient="$new_address"
+                         fi
+             debug "New recipient list: $recipient"
          fi
       fi
-	  (( MAILGROUP_COUNTER = MAILGROUP_COUNTER + 1 ))
-	  done
-	  
+          (( MAILGROUP_COUNTER = MAILGROUP_COUNTER + 1 ))
+          done
+
   done
 }
 
 ##############################################################################
 #
-#  Process input parameters 
+#  Process input parameters
 #
 readconf "default"
 
 for arg; do
    case $arg in
-        -f | --force_email )  
-           FORCE_EMAIL="TRUE" 
-	   ;;
-        -n | --no_email )  
-	   NO_EMAIL="TRUE"
-   	   ;;
+        -f | --force_email )
+           FORCE_EMAIL="TRUE"
+           ;;
+        -n | --no_email )
+           NO_EMAIL="TRUE"
+           ;;
         -r | --no_row_update )
-	   UPDATE_ROWNUM="FALSE"
-	   ;;
+           UPDATE_ROWNUM="FALSE"
+           ;;
         -e | --echo )
-	   ECHO_DISPLAY="ON"
-	   echo 'ECHO_Display=ON'
-	   ;;
+           ECHO_DISPLAY="ON"
+           echo 'ECHO_Display=ON'
+           ;;
         -d | --debug )
-	   DEBUG="TRUE"
-	   echo '-- Debug mode ON'
-	   ;;	   	   
+           DEBUG="TRUE"
+           echo '-- Debug mode ON'
+           ;;
         -c | --change_only )
            CHANGE_ONLY="TRUE"
            debug '-- Change only mode ON'
            ;;
         -h | --help )
-	   usage
-	   exit
-	   ;;
+           usage
+           exit
+           ;;
    esac
    done
 
 ##############################################################################
 #
-#  Pre-requisites 
+#  Pre-requisites
 #
 
 message=""
@@ -427,7 +428,7 @@ if [ -f $SOURCE_ENVIRONMENT ]; then
    else
    if [[ $SOURCE_ENVIRONMENT != "" ]];then
       debug "$SOURCE_ENVIRONMENT was not found."
-	  fi
+          fi
    fi
 
 add_to_recipients "default_group"
@@ -466,7 +467,7 @@ if [  -f $JSON_FILE ]; then
 
   if [ "x$check_json_start" != "x[" ]; then
      debug "JSON first line NOT OK. Resetting JSON file."
-     rm -f $JSON_FILE 
+     rm -f $JSON_FILE
   fi
   if [ "x$check_json_end" != "x\]" ]; then
      debug "JSON last line NOT OK. Resetting JSON file."
@@ -475,11 +476,9 @@ if [  -f $JSON_FILE ]; then
 
 fi
 
-
-
 if [ ! -f $JSON_FILE ]; then
   echo "[" >> $JSON_FILE
-  echo "{ \"id\":\"loopback\", \"errorlevel\":1, \"details\":\"Just started.\", \"timestamp\":`date +%s` }" >> $JSON_FILE 
+  echo "{ \"id\":\"loopback\", \"errorlevel\":1, \"details\":\"Just started.\", \"timestamp\":`date +%s` }" >> $JSON_FILE
   echo "]" >> $JSON_FILE
 fi
 
@@ -498,36 +497,36 @@ readconf "command_check"
 COUNTER=1
 while [[ ${command[$COUNTER]} != "" ]]; do
    SEVERITY=0
-   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`      
+   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
    debug "Raspuns IN_SCHEDULE: $IN_SCHEDULE"
-   debug "Command $COUNTER is ${command[$COUNTER]}." 
-   if [[ $IN_SCHEDULE != "FALSE" ]]; then   
+   debug "Command $COUNTER is ${command[$COUNTER]}."
+   if [[ $IN_SCHEDULE != "FALSE" ]]; then
 
       response=`echo ${command[$COUNTER]} | sh`
       debug "Response is $response"
-   
+
       if [ $response -eq ${normalvalue[$COUNTER]} ]
        then
-        # Este ok 
-		
+        # Este ok
+
         display_and_mail ${message_YES[COUNTER]}
         json_add "{ \"id\":\"command $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
        else
-	    check_subject
-	    check_severity ${severity[$COUNTER]}
+            check_subject
+            check_severity ${severity[$COUNTER]}
             display_and_mail ${message_NOT[$COUNTER]}
-            add_to_recipients ${add_recipient[$COUNTER]} 
-	    clear_severity
+            add_to_recipients ${add_recipient[$COUNTER]}
+            clear_severity
             json_add "{ \"id\":\"command $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
-      fi   
-   fi   
+      fi
+   fi
    ((COUNTER=COUNTER+1))
 done
 
 
 ##############################################################################
 #
-#  Check for needed remote connections 
+#  Check for needed remote connections
 #
 
 readconf "remote_connections"
@@ -535,26 +534,29 @@ readconf "remote_connections"
 COUNTER=1
 while [[ ${remote_IP[$COUNTER]} != "" ]]; do
    SEVERITY=0
-   debug "Remote connection $COUNTER is ${remote_IP[$COUNTER]}:${remote_port[$COUNTER]}." 
+   debug "Remote connection $COUNTER is ${remote_IP[$COUNTER]}:${remote_port[$COUNTER]}."
    IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
-   if [[ $IN_SCHEDULE != "FALSE" ]]; then   
-      response=$(printf '%bquit\n' '\035' | telnet ${remote_IP[$COUNTER]} ${remote_port[$COUNTER]} 2>&1 > /dev/null | wc -l)
+   if [[ $IN_SCHEDULE != "FALSE" ]]; then
+      #telnet method:
+      #response=$(printf '%bquit\n' '\035' | telnet ${remote_IP[$COUNTER]} ${remote_port[$COUNTER]} 2>&1 > /dev/null | wc -l)
+      #curl method:
+      response=$(curl --connect-timeout 2 --max-time 3 ${remote_IP[$COUNTER]}:${remote_port[$COUNTER]} 2>&1 | grep 'Connection refused' | wc -l)
       debug "Response is $response"
-      if (( $response > 0 )) 
-         then 
+      if (( $response > 0 ))
+         then
           # NU este OK
-		  check_subject
-		  check_severity ${severity[$COUNTER]}
+                  check_subject
+                  check_severity ${severity[$COUNTER]}
                   display_and_mail ${message_NOT[$COUNTER]}
-                  add_to_recipients ${add_recipient[$COUNTER]} 		  
-		  clear_severity
+                  add_to_recipients ${add_recipient[$COUNTER]}
+                  clear_severity
                   json_add "{ \"id\":\"remote $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
          else
           display_and_mail ${message_YES[COUNTER]}
           json_add "{ \"id\":\"remote $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
 
       fi
-   fi    
+   fi
    ((COUNTER=COUNTER+1))
 done
 
@@ -606,7 +608,7 @@ while [[ ${test_ip[$COUNTER]} != "" ]]; do
   fi
   ((COUNTER=COUNTER+1))
 done
-  
+
 ##############################################################################
 #
 #  Check disk space
@@ -659,7 +661,7 @@ done
 
 #Disk space overall ===========================================================
   if [[ $disk_space = "OK" ]]
-    then 
+    then
      display_and_mail $OK_message
     else
      echo "There must have been at least one NOT OK" > /dev/null
@@ -668,7 +670,7 @@ done
 
 ##############################################################################
 #
-#  Oracle 
+#  Oracle
 #
 
 display_and_mail "ORACLE ====================================================="
@@ -681,39 +683,39 @@ while [[ ${oracle_connect[$COUNTER]} != "" ]]; do
   SEVERITY=0
   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
   debug "Oracle check no $COUNTER is in schedule: $IN_SCHEDULE"
-  
-  if [[ $IN_SCHEDULE != "FALSE" ]]; then   
 
-  
+  if [[ $IN_SCHEDULE != "FALSE" ]]; then
+
+
   TMP_VAR=`$sql_plus -s /nolog  <<EOF | tr "\012" "|" | tr " " "#" | tr "\011" "@"
     $ORACLE_HEADER
-    connect ${oracle_connect[$COUNTER]} 
-    ${select_string[$COUNTER]} 
-    exit; 
+    connect ${oracle_connect[$COUNTER]}
+    ${select_string[$COUNTER]}
+    exit;
 EOF`
   answer=`echo $TMP_VAR | tr "|" "\012" | tr "#" " " | tr "@" "\011"`
   if [[ $answer = ${expected_result[$COUNTER]} ]]
     then
-     display_and_mail ${message_YES[$COUNTER]} 
+     display_and_mail ${message_YES[$COUNTER]}
      json_add "{ \"id\":\"oracle $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
     else
-	 check_subject
-	 check_severity ${severity[$COUNTER]}
+         check_subject
+         check_severity ${severity[$COUNTER]}
          display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
-         add_to_recipients ${add_recipient[$COUNTER]} 
+         add_to_recipients ${add_recipient[$COUNTER]}
          clear_severity
          json_add "{ \"id\":\"oracle $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
 
   fi
-  
+
   fi
   ((COUNTER=COUNTER+1))
-done     
+done
 debug "Done with oracle checks.."
 
  ##############################################################################
 #
-#  External scripts 
+#  External scripts
 #
 
 display_and_mail "External Scripts ==========================================="
@@ -724,34 +726,34 @@ COUNTER=1
 while [[ ${script[$COUNTER]} != "" ]]; do
   SEVERITY=0
   IN_SCHEDULE=`check_schedule ${schedule[$COUNTER]}`
-  if [[ $IN_SCHEDULE != "FALSE" ]]; then   
+  if [[ $IN_SCHEDULE != "FALSE" ]]; then
 
-  debug "Se executa: . ${script[$COUNTER]}"
+  debug "Executing: . ${script[$COUNTER]}"
   TMP_VAR=`. ${script[$COUNTER]}`
   answer=`echo $TMP_VAR`
   debug "Answer is $answer"
   if [[ $answer = ${normaloutput[$COUNTER]} ]]
     then
-     display_and_mail ${message_YES[$COUNTER]} 
+     display_and_mail ${message_YES[$COUNTER]}
      json_add "{ \"id\":\"external $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
     else
-	 check_subject
-	 check_severity ${severity[$COUNTER]}
+         check_subject
+         check_severity ${severity[$COUNTER]}
          display_and_mail "${message_NOT[$COUNTER]} : \n $answer "
-         add_to_recipients ${add_recipient[$COUNTER]} 
+         add_to_recipients ${add_recipient[$COUNTER]}
          clear_severity
          json_add "{ \"id\":\"external $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
   fi
-  
+
   fi
   ((COUNTER=COUNTER+1))
-done     
+done
 
- 
- 
+
+
 ##############################################################################
 #
-#  Check log for ERRORS 
+#  Check log for ERRORS
 #
 
 display_and_mail "Logs ======================================================="
@@ -765,53 +767,53 @@ while [[ ${log_file[$COUNTER]} != "" ]]; do
   debug "Log file: ${log_file[$COUNTER]}"
   debug "Schedule reponse $IN_SCHEDULE"
   debug "$UPDATE_ROWNUM is update rownum"
-  if [[ $IN_SCHEDULE != "FALSE" ]]; then   
+  if [[ $IN_SCHEDULE != "FALSE" ]]; then
 
   DIFERENCE=`last_lines ${log_file[$COUNTER]}`
   debug "DIFERENCE is $DIFERENCE"
   tail_script="${tail_command}${DIFERENCE} ${log_file[$COUNTER]} | ${grep_command[$COUNTER]}"
   response=`echo $tail_script | sh`
 
-  lines=`echo "$response" | grep " " | wc -l`  
-  
-  if [ $lines -ne 0 ] 
+  lines=`echo "$response" | grep " " | wc -l`
+
+  if [ $lines -ne 0 ]
    then
     if ((lines > 40 ))
-	   then
-	     (( printlines = 40 ))
-		else
-		 (( printlines = lines ))
-	fi
+           then
+             (( printlines = 40 ))
+                else
+                 (( printlines = lines ))
+        fi
     debug "$lines error lines found"
-	check_subject
-	check_severity ${severity[$COUNTER]}
+        check_subject
+        check_severity ${severity[$COUNTER]}
     display_and_mail ${message_NOT[$COUNTER]}
     json_add "{ \"id\":\"log $COUNTER\", \"errorlevel\":${severity[$COUNTER]}, \"details\":\"${message_NOT[COUNTER]}\", \"timestamp\":`date +%s` }"
 
     display_and_mail "$lines lines found matching error messages:"
     if ((lines > 40 ))
-		then
-		display_and_mail "(only last $printlines will be printed here)"
-		response=`echo "$response" | grep " " | ${tail_command}${printlines}`
-	fi
+                then
+                display_and_mail "(only last $printlines will be printed here)"
+                response=`echo "$response" | grep " " | ${tail_command}${printlines}`
+        fi
     message=`echo "$message" "$response"`
     display_and_mail "--------- \n"
-    add_to_recipients ${add_recipient[$COUNTER]} 	
-	clear_severity
+    add_to_recipients ${add_recipient[$COUNTER]}
+        clear_severity
    else
     display_and_mail ${message_YES[$COUNTER]}
     json_add "{ \"id\":\"log $COUNTER\", \"errorlevel\":0, \"details\":\"${message_YES[COUNTER]}\", \"timestamp\":`date +%s` }"
   fi
-  
+
   fi
   ((COUNTER=COUNTER+1))
-done     
- 
+done
+
 
 
 ##############################################################################
 #
-#  Finishing touches 
+#  Finishing touches
 #
 
 #Sendmail =====================================================================
@@ -823,7 +825,7 @@ display_and_mail "-----\nThis message was generated on: $todays_date.\nGenerated
 display_and_mail "\nHost info:\n local ip: $iplist \n ngrok url: $ngrokurl"
 
 debug "Maximum severity found active: $MAX_SEVERITY"
-debug "Recipient list: $recipient" 
+debug "Recipient list: $recipient"
 
 if [[ `echo -e "$message" | grep "NOT OK"` = "" ]]
    then
@@ -834,8 +836,8 @@ CHANGE_DETECTED="TRUE"
 if [ -f $STAT_FILE ]; then
   difference=`diff $STAT_FILE $STAT_FILE.$CURRENT_PID.tmp | wc -l`
   if [[ $difference == "0" ]]; then CHANGE_DETECTED="FALSE"; fi
-  mv -f $STAT_FILE.$CURRENT_PID.tmp $STAT_FILE
 fi
+mv -f $STAT_FILE.$CURRENT_PID.tmp $STAT_FILE
 
 SEVERITY_TEXT="Normal"
 if [[ $MAX_SEVERITY == "1" ]]; then SEVERITY_TEXT="Indeterminate"; fi
@@ -844,7 +846,7 @@ if [[ $MAX_SEVERITY == "3" ]]; then SEVERITY_TEXT="Minor"; fi
 if [[ $MAX_SEVERITY == "4" ]]; then SEVERITY_TEXT="Major"; fi
 if [[ $MAX_SEVERITY == "5" ]]; then SEVERITY_TEXT="Critical"; fi
 
-if [[ $FORCE_EMAIL = "TRUE" ]] 
+if [[ $FORCE_EMAIL = "TRUE" ]]
   then
     debug "Mailed sent with forced -f option!"
       debug "Sending mail!"
@@ -855,23 +857,23 @@ if [[ $FORCE_EMAIL = "TRUE" ]]
      display_and_mail "Everything seems ok!"
    else
     if [[ $MAX_SEVERITY -ge $MIN_SEVERITY_TO_MAIL ]]
-	 then
+         then
       #send the email
       if [[ $NO_EMAIL = "TRUE" ]]
-	     then
-	     display_and_mail "Message will not be sent because of --no_email option"
-         else	
+             then
+             display_and_mail "Message will not be sent because of --no_email option"
+         else
              if [[ $CHANGE_ONLY == "TRUE" && $CHANGE_DETECTED == "FALSE" ]]; then
                debug "Not sending: status has not changed. "
-             else 
-	       # REALLY! SEND THE EMAIL!
+             else
+               # REALLY! SEND THE EMAIL!
                debug "Sending mail!"
                echo -e "$message" | $mail_command -s "[$SEVERITY_TEXT] $subject" -r $sender $recipient
              fi
-	  fi
-	else
-	 debug "Not sending: severity is $MAX_SEVERITY, while severity to send mail is $MIN_SEVERITY_TO_MAIL"	 
-	fi
+          fi
+        else
+         debug "Not sending: severity is $MAX_SEVERITY, while severity to send mail is $MIN_SEVERITY_TO_MAIL"
+        fi
   fi
 fi
 
